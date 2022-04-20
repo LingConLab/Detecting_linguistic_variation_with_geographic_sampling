@@ -1,0 +1,728 @@
+---
+title: "Supplementary materials for 'Detecting linguistic variation with geographic sampling'"
+author: "G. Moroz, E. Koile"
+date: "`r Sys.Date()`"
+bibliography: bibliography.bib
+output: 
+  html_document:
+    toc: true
+    toc_position: right
+    toc_depth: 2
+    toc_float: yes
+    number_sections: true
+    df_print: paged
+    code_folding: hide
+knit: (function(inputFile, encoding) { 
+      out_dir <- 'docs';
+      rmarkdown::render(inputFile,
+                        encoding=encoding, 
+                        output_file=file.path(dirname(inputFile), out_dir, 'index.html')) })
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=15, fig.height=7, message=FALSE, warning = FALSE)
+library(tidyverse)
+theme_set(theme_bw()+theme(text = element_text(size = 18)))
+```
+
+
+# Tasks:
+
+* run without subsampling
+* change equidistant to circular equidistant
+* eq - cp - ch - un; and change id to catogory
+
+# Intro
+
+# Generating data
+## Generating all possible destributions
+
+We generated data that resembles different distributions found in realistic linguistic settings. In all cases, we have a number of villages $N_v$, ranging from 30 to 90 in decades, and $N_c$ different categories for the variable of interest, ranging from 3 to 10. For each combination of $N_v$ and $N_c$, different categories can be differently populated. For example, if we have $N_v$ = 50 and $N_c$ = 5, we can have an even distribution with exactly 10 villages in each category (configuration 10-10-10-10-10), one overly-populated category with 46 villages, while the remaining 4 categories have only one village (configuration 46-1-1-1-1), or any intermediate configuration. We call this distribution the count configuration $Q$, and its associated entropy is $H(Q)$.
+
+In order to generate such a data we used the following function with the following variables:
+
+* `n_villages` --- number of villages to simulate
+* `n_categories` --- number of categories to simulate 
+
+```{r}
+all_categories_values <- function(n_villages = 30, n_categories = 5){
+  require(tidyverse, quietly = TRUE)
+  partitions::parts(n_villages) %>% 
+    as.matrix() %>% 
+    t() %>% 
+    as.data.frame() %>% 
+    filter(eval(parse(text = str_c("V", n_categories+1))) == 0,
+           eval(parse(text = str_c("V", n_categories))) != 0) %>% 
+    select(1:all_of(n_categories)) %>% 
+    mutate(set = 1:n()) %>% 
+    pivot_longer(values_to = "value", names_to = "column", -set) %>% 
+    group_by(set) %>% 
+    mutate(ratio = value/n_villages,
+           H = -sum(ratio*log2(ratio))) %>% 
+    select(-ratio) %>% 
+    mutate(n_villages,
+           n_categories) %>% 
+    pivot_wider(values_from = value, names_from = column) %>% 
+    ungroup()
+}
+```
+
+This function generates the table with the following columns:
+
+* set --- unique set id
+* H --- entropy value
+* `n_villages` --- number of villages to simulate
+* `n_categories` --- number of categories to simulate 
+* `V1`, `V2`, `V3`, `V4`, `V5` --- columns with the counts of  villages with the particular category denoted with the column
+
+Let's see the example with 30 villages and 5 categories:
+
+```{r}
+all_categories_values(n_villages = 30, n_categories = 5)
+```
+
+## Generating spatial patterns
+
+We distinguish three spatial configurations, that we call *circular equidistant*, *center-periphery*, and *uniform*.  In order to do so we created a function with the following parameters:
+
+* `N` --- number of groups;
+* `n` --- number of observations within each group. It is also possible to put a vector of observations per group (in that situation center group should go last);
+* `r` --- distance of the group centroid from the center that is (0, 0);
+* `d` --- distance that used for tweeking variance within the group;
+* `central_distance` --- function that describes the distance of observations from the centroid;
+* `neighbour_distance` --- function. Function for tweeking distance within the group;
+* `center` --- logical. Whether one group should be positioned in the center.
+
+```{r}
+generate_equadistant <- function(N = 5, 
+                                 n = 100, 
+                                 r = 26,
+                                 central_distance = function(r){log(r)},
+                                 neighbour_distance = function(r, N){2*r*sin(pi/N)},
+                                 center = FALSE){
+  require(tidyverse,quietly = TRUE)
+  n <- unlist(n)
+  
+  if(length(n) == 1){
+    n <- rep(n, N)
+  }
+  
+  if(length(n) != N){
+    stop("The number of groups (N) should be equal to the number of values in number of observations (n)")
+  }
+  
+  if(center){
+    N <- N-1
+    n_center <-  n[length(n)]
+    n <- n[-length(n)]
+  }
+  
+  n <- sample(n) # in order to have random order of number of observation per groups 
+  
+  angle <- 2*pi/N
+  lapply(1:N, function(k){
+    V1 <- (2-rlnorm(n = n[k], meanlog = 0, sdlog = central_distance(r)))*r
+    V2 <- rnorm(n = n[k], mean = 0, sd = neighbour_distance(r, N)/2)
+    while(sum(V1 > r*1.5 | V1 < -r*1.5) > 0){
+      V1 <- ifelse(V1 > r*1.5 | V1 < -r*1.5, 
+                   (2-rlnorm(n = n[k], meanlog = 0, sdlog = 1))*r, 
+                   V1)  
+    }
+    df <- data.frame(V1, V2)
+    df$V1 <- df$V1+r
+    df$y <- df$V1*cos(angle*k)-df$V2*sin(angle*k)
+    df$x <- df$V1*sin(angle*k)+df$V2*cos(angle*k)
+    return(df[,3:4])
+  }) %>% 
+    do.call(rbind, .) %>% 
+    as.data.frame() %>% 
+    mutate(id = c(unlist(mapply(rep, 1:N, n)))) ->
+    results
+  
+  if(center){
+    data.frame(x = rnorm(n = n_center, mean = 0, sd = r*0.5),
+               y = rnorm(n = n_center, mean = 0, sd = r*0.5),
+               id = N + 1) %>% 
+      bind_rows(results) ->
+      results
+  }
+  results %>% 
+    mutate(id = factor(id)) %>% 
+    return()
+}
+
+generate_uniform <- function(N = 5,
+                             n = 100,
+                             r = 55){
+  n <- sample(n) # in order to have uniform order of number of observation per groups 
+  map_dfr(1:N, function(k){
+    data.frame(x = runif(n[k], -r, r),
+               y = runif(n[k], -r, r),
+               id = k)
+  }) %>% 
+    mutate(id = factor(id)) %>% 
+    return()
+}
+
+generate_chain <- function(N = 5,
+                           n = 100,
+                           r = 26,
+                           sd_1 = 8,
+                           sd_2 = 3){
+  require(tidyverse,quietly = TRUE)
+  n <- unlist(n)
+  if(length(n) == 1){
+    n <- rep(n, N)
+  }
+  if(length(n) != N){
+    stop("The number of groups (N) should be equal to the number of values in number of observations (n)")
+  }
+  n <- sample(n) # in order to have random order of number of observation per groups
+  lapply(1:N, function(k){
+    data.frame(x = rnorm(n = n[k], mean = 0, sd = sd_1) + r*(k-1), 
+               y = rnorm(n = n[k], mean = 0, sd = sd_2))
+  }) %>%
+    do.call(rbind, .) %>%
+    as.data.frame() %>%
+    mutate(id = c(unlist(mapply(rep, 1:N, n)))) ->
+    results
+  results %>%
+    mutate(id = factor(id)) %>%
+    return()
+}
+
+```
+
+```{r}
+number_elements <- c(11, 13, 11, 21, 19, 42)
+number_of_groups <- 6
+```
+
+Here are some examples of gathered distributions for `r number_of_groups` categories with `r sort(number_elements)` villages:
+
+[//]: # (add centroids and pentagon and squire)
+
+```{r}
+set.seed(42)
+generate_equadistant(N = number_of_groups,
+                     n = number_elements) %>% 
+   mutate(type = "(a) circular equidistant",
+          type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) ->
+   equidistant_example
+
+generate_equadistant(N = number_of_groups,
+                     n = number_elements,
+                     center = TRUE) %>% 
+   mutate(type = "(b) center-periphery",
+          type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) ->
+   center_periphery_example
+
+generate_uniform(N = number_of_groups,
+                 n = number_elements) %>% 
+   mutate(type = "(d) uniform",
+          type = factor(type, levels = c("(a) equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) ->
+   uniform_example
+
+generate_chain(N = number_of_groups,
+               n = number_elements) %>% 
+   mutate(type = "(c) chain",
+          type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) ->
+   chain_example
+
+N <- number_of_groups
+# y <- 26*(cos(2*pi/N*1:N)-sin(2*pi/N*1:N))
+# x <- 26*(sin(2*pi/N*1:N)+cos(2*pi/N*1:N))
+
+equidistant_example %>% 
+  group_by(id, type) %>% 
+  summarise(x = mean(x), 
+            y = mean(y)) %>% 
+  ungroup()->
+  eq_centroids
+
+eq_centroids %>% 
+  bind_rows(eq_centroids %>% slice(1) %>% mutate(id = factor(7))) ->
+  eq_centroids
+
+center_periphery_example %>% 
+  group_by(id, type) %>% 
+  summarise(x = mean(x), 
+            y = mean(y)) %>% 
+  ungroup() %>% 
+  slice(-n()) ->
+  cp_centroids
+
+cp_centroids %>% 
+  bind_rows(cp_centroids %>% slice(1) %>% mutate(id = factor(7))) ->
+  cp_centroids
+
+chain_example %>% 
+  group_by(id, type) %>% 
+  summarise(x = mean(x), 
+            y = mean(y)) %>% 
+  ungroup()  ->
+  ri_centroids
+
+cp_centroids %>% 
+  bind_rows(eq_centroids, ri_centroids) ->
+  centroids
+
+equidistant_example %>% 
+  bind_rows(center_periphery_example, 
+            uniform_example,
+            chain_example) %>% 
+  mutate(type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) %>% 
+  ggplot(aes(x, y, color = id, shape = id))+
+  geom_line(data = centroids, aes(x, y), color = "black", group = 1)+
+  geom_point(data = centroids, aes(x, y), color = "black", shape = 10, size = 4)+
+  geom_point(size = 3)+
+  stat_ellipse(linetype = 2)+
+  facet_wrap(~type, scale = "free")+
+  scale_shape_manual(values = c(15:18, 8, 3, 4, 10))+
+  guides(shape = "none")+
+  labs(color = "category")+
+  theme(legend.position = "bottom")
+ggsave("images/spatial_pattern_example.png", width = 10, height =  8)
+```
+
+There are 3 geographical patterns with `r number_of_groups` groups in the same amount of villages in each pattern. Each group surrounded with the normal ellipsis [@fox2011].
+
+## Final data generation
+
+With those two help functions we can generate all data for our research:
+
+* first we generate all possible combinations of datasets with different village sizes (30, 40, ... 70) and categories (3, 4, ... 9);
+
+```{r data_combination_templates, cache=TRUE, eval = FALSE}
+index <- 0
+
+feature_combination <- expand_grid(n_vil = seq(30, 70, by = 10),
+                                   n_cat = 3:9)
+map_dfr(seq_along(feature_combination$n_vil), function(k){
+  i <- feature_combination$n_vil[k]
+  j <- feature_combination$n_cat[k]
+  all_categories_values(i, j) %>%
+    mutate(set = set + index) ->
+    df
+  index <<- max(df$set)
+  df}) %>% 
+  write_csv("data/data_combination_templates.csv")
+```
+
+Here is some examples of generated templates:
+
+```{r}
+data_comb_temp <- read_csv("data/data_combination_templates.csv")
+data_comb_temp %>% 
+  group_by(n_categories) %>% 
+  sample_n(1)
+```
+
+* there are `r nrow(data_comb_temp)` lines generated on the previous step. On the next step we go through each line and generate all three spatial patterns discussed in the previous section.
+
+```{r start-of-sampling, eval = FALSE}
+data_comb_temp %>% 
+  group_by(n_categories)  ->
+  df
+
+system.time(
+map(1:nrow(df), function(i){
+  generate_equadistant(center = FALSE,
+                       N = unique(df$n_categories[i]), 
+                       n  = df[i, 5:(4+df$n_categories[i])] %>% 
+                         unlist() %>% 
+                         unname()) %>% 
+    bind_cols(df[i,]) %>% 
+    write_csv("data/equidistant.csv", append = TRUE)
+  generate_equadistant(center = TRUE,
+                       N = unique(df$n_categories[i]), 
+                       n  = df[i, 5:(4+df$n_categories[i])] %>% 
+                         unlist() %>% 
+                         unname()) %>% 
+    bind_cols(df[i,]) %>% 
+    write_csv("data/center_periphery.csv", append = TRUE)   
+  generate_uniform(N = unique(df$n_categories[i]), 
+                  n  = df[i, 5:(4+df$n_categories[i])] %>% 
+                    unlist() %>% 
+                    unname()) %>% 
+    bind_cols(df[i,]) %>% 
+    write_csv("data/uniform.csv", append = TRUE)   
+  generate_chain(N = unique(df$n_categories[i]), 
+                 n  = df[i, 5:(4+df$n_categories[i])] %>% 
+                   unlist() %>% 
+                   unname()) %>% 
+    bind_cols(df[i,]) %>% 
+    write_csv("data/chain.csv", append = TRUE)   
+})
+)
+```
+
+As a result we generated three files: `center_periphery.csv`, `chain.csv`, `equidistant.csv`, `uniform.csv`. You can see from the time report that this took us a while.
+
+# Results of clusterisation of generated data
+
+```{r, eval=FALSE}
+files <- c("equidistant", 
+           "center_periphery",
+           "uniform",
+           "chain")
+villages_fraction <- seq(0.1, 0.9, 0.1)
+gc()
+
+map(files, function(file){
+  df <- data.table::fread(str_c("data/", file, ".csv"))
+  
+  colnames(df) <-
+    c(
+      'x',
+      'y',
+      'id',
+      'set',
+      'H',
+      'n_villages',
+      'n_categories',
+      'V1',
+      'V2',
+      'V3',
+      'V4',
+      'V5',
+      'V6',
+      'V7',
+      'V8',
+      'V9'
+    )
+  
+  df %>%
+    filter(set != 71659) ->
+    df
+  
+  map(villages_fraction, function(i){
+    set.seed(42)
+    df %>%
+      mutate(n_centers = round(n_villages*i)) %>%
+      group_by(set, n_centers) %>%
+      mutate(cluster = tryCatch(kmeans(as.matrix(tibble(x, y)),
+                                       centers = unique(n_centers))$cluster,
+                                error = function(e) "problem")) %>%
+      group_by(set, cluster) %>%
+      sample_n(1) %>%
+      group_by(set, H, n_villages, n_categories) %>%
+      summarise(variability = ifelse(cluster != "problem",
+                                     length(unique(id))/n_categories,
+                                     NA), .groups = "drop") %>%
+      mutate(type = "k-means",
+             space = file,
+             select_p = i) %>%
+      distinct() %>% 
+        write_csv(str_c("data/", file, "_k_means_results.csv"), append = TRUE)
+    gc()
+  })
+
+  map(villages_fraction, function(i){
+    set.seed(42)
+    df %>% 
+      mutate(n_centers = round(n_villages*i)) %>% 
+      group_by(set, n_centers) %>% 
+      mutate(cluster = tryCatch(cutree(hclust(dist(tibble(x, y))), 
+                                       k = unique(n_centers)),
+                                error = function(e) "problem")) %>% 
+      group_by(set, cluster) %>% 
+      sample_n(1) %>% 
+      group_by(set, H, n_villages, n_categories) %>% 
+      summarise(variability = ifelse(cluster != "problem", 
+                                     length(unique(id))/n_categories,
+                                     NA), .groups = "drop") %>% 
+      mutate(type = "h-clust",
+             space = file,
+             select_p = i) %>% 
+      distinct() %>% 
+      write_csv(str_c("data/", file, "_h_clust_results.csv"), append = TRUE)
+    gc()
+  })
+  
+  map(villages_fraction, function(i){
+    set.seed(42)
+    df %>% 
+      mutate(n_centers = round(n_villages*i)) %>% 
+      group_by(set, n_centers) %>% 
+      sample_n(n_centers) %>% 
+      group_by(set, H, n_villages, n_categories) %>% 
+      summarise(variability = length(unique(id))/n_categories, .groups = "drop") %>% 
+      mutate(type = "random",
+             space = file,
+             select_p = i) %>% 
+      distinct() %>% 
+      write_csv(str_c("data/", file, "_random_results.csv"), append = TRUE)
+    gc()
+  })
+  gc()
+})
+```
+
+As a result there are twelve new files:
+
+`chain_h_clust_results.csv`, `chain_k_means_results.csv`, `chain_random_results.csv`, 
+`center_periphery_h_clust_results.csv`, `center_periphery_k_means_results.csv`, `center_periphery_random_results.csv`, `equidistant_h_clust_results.csv`,  `equidistant_k_means_results.csv`, `equidistant_random_results.csv`, `uniform_h_clust_results.csv`,  `uniform_k_means_results.csv`, `uniform_random_results.csv`. Now we can open, merge  and visualize obtained data:
+
+```{r visualize}
+cp_km <- data.table::fread("data/center_periphery_k_means_results.csv")
+cp_hc <- data.table::fread("data/center_periphery_h_clust_results.csv")
+cp_r <- data.table::fread("data/center_periphery_random_results.csv")
+eq_km <- data.table::fread("data/equidistant_k_means_results.csv")
+eq_hc <- data.table::fread("data/equidistant_h_clust_results.csv")
+eq_r <- data.table::fread("data/equidistant_random_results.csv")
+un_km <- data.table::fread("data/uniform_k_means_results.csv")
+un_hc <- data.table::fread("data/uniform_h_clust_results.csv")
+un_r <- data.table::fread("data/uniform_random_results.csv")
+ch_km <- data.table::fread("data/chain_k_means_results.csv")
+ch_hc <- data.table::fread("data/chain_h_clust_results.csv")
+ch_r <- data.table::fread("data/chain_random_results.csv")
+
+
+cp_km %>%
+  bind_rows(cp_hc,
+            cp_r,
+            eq_km,
+            eq_hc,
+            eq_r,
+            un_km,
+            un_hc,
+            un_r,
+            ch_km,
+            ch_hc,
+            ch_r) ->
+  full_dataset
+
+colnames(full_dataset) <-
+  c(
+    'set',
+    'H',
+    'n_villages',
+    'n_categories',
+    'discovery_fraction',
+    'type',
+    'location',
+    'village_sample_fraction'
+  )
+
+rm(cp_hc, cp_km, cp_r, eq_hc, eq_km, eq_r, ch_hc, ch_km, ch_r, un_hc, un_km, un_r)
+
+full_dataset %>%
+  ggplot(aes(village_sample_fraction, discovery_fraction, color = type))+
+ # geom_point()+
+ geom_smooth(method = "glm", method.args = list(family = "binomial"), se = FALSE)+
+  #geom_jitter(alpha = 0.01, width = 0.5)+
+  facet_grid(location~n_categories)+
+  labs(y = "discovery fraction")
+ggsave("images/discovery_fracton_by_village.png")
+```
+
+```{r, eval = FALSE, include=FALSE}
+full_dataset %>%
+  ggplot(aes(H, discovery_fraction*n_categories, color = factor(n_categories), linetype = type))+
+  #geom_point()+
+#  geom_smooth(se = FALSE, method = "glm", method.args = list(family = "binomial"))+
+  geom_smooth()+
+  facet_grid(location~n_categories, scales = "free_y")+
+  scale_linetype_manual("", values = c(1, 2, 4))
+ggsave("images/discovery_fracton_by_H.png")
+```
+
+```{r}
+full_dataset %>%
+  group_by(n_categories, location, type) %>% 
+  mutate(H_norm = H/max(H)) %>% 
+  ggplot(aes(H_norm, discovery_fraction, color = factor(n_categories)))+
+  #geom_point()+
+  geom_smooth(se = FALSE, method = "glm", method.args = list(family = "binomial"))+
+  #geom_smooth(se = FALSE)+
+  facet_grid(location~type, scales = "free_y")+
+  labs(x = "normalized H", 
+       y = "discovery fraction",
+       color = "number of\ncategories")
+ggsave("images/normalized_entrop.png")
+```
+
+
+# Case studies: Circassian data
+
+```{r, fig.height=6}
+library(lingtypology)
+circassian <- read_csv("data/circassian.csv")
+
+map.feature(languages = circassian$language,
+            features = circassian$dialect,
+            latitude = circassian$latitude,
+            longitude = circassian$longitude,
+            label = circassian$village,
+            minimap = TRUE,
+            minimap.position = "topright",
+            legend.position = "bottomleft",
+            tile = "Esri.WorldTopoMap")
+
+map.feature(languages = circassian$language,
+            features = circassian$uvular_qh,
+            latitude = circassian$latitude,
+            longitude = circassian$longitude, 
+            minimap = TRUE,
+            minimap.position = "topright",
+            legend.position = "bottomleft",
+            tile = "Esri.WorldTopoMap")
+```
+
+
+```{r clustering_circassian, cache=TRUE}
+N <- nrow(circassian)
+
+map_dfr(1:100, function(i){
+  circassian %>% 
+    mutate(dataset_id = i)
+}) ->
+  circassian_100
+
+set.seed(42)
+map_dfr(seq(0.05, 0.9, 0.01), function(i){
+  circassian_100 %>% 
+    group_by(dataset_id) %>% 
+    mutate(kmeans_cluster = kmeans(as.matrix(tibble(latitude, longitude)), 
+                                   centers = N*i)$cluster) %>% 
+    group_by(dataset_id, kmeans_cluster) %>% 
+    sample_n(1) %>% 
+    mutate(proportion_of_village = i,
+           cluster_type = "k-means") %>% 
+    ungroup() %>% 
+    select(-kmeans_cluster)
+}) ->
+  kmeans_result
+
+set.seed(42)
+map_dfr(seq(0.05, 0.9, 0.01), function(i){
+  circassian_100 %>% 
+    group_by(dataset_id) %>% 
+    mutate(hclust_cluster = cutree(hclust(dist(tibble(latitude, longitude))), k = N*i)) %>% 
+    group_by(dataset_id, hclust_cluster) %>% 
+    sample_n(1) %>% 
+    mutate(proportion_of_village = i,
+           cluster_type = "hierarchical clustering") %>% 
+    ungroup() %>% 
+    select(-hclust_cluster)
+}) ->
+  hclust_result
+
+set.seed(42)
+map_dfr(seq(0.05, 0.9, 0.01), function(i){
+  circassian_100 %>% 
+    group_by(dataset_id) %>% 
+    sample_n(N*i) %>% 
+    mutate(proportion_of_village = i,
+           cluster_type = "random")
+}) ->
+  random_result
+
+random_result %>% 
+  bind_rows(hclust_result, kmeans_result) %>% 
+  distinct(proportion_of_village, cluster_type, dialect) %>% 
+  count(proportion_of_village, cluster_type) %>% 
+  mutate(ratio = n/8) %>% 
+  write_csv("data/circassian_dialect_samples.csv")
+```
+
+
+```{r visualise_circassian}
+set.seed(42)
+map_dfr(seq(0.05, 0.9, 0.01), function(i){
+  circassian_100 %>% 
+    group_by(dataset_id) %>% 
+    mutate(kmeans_cluster = kmeans(as.matrix(tibble(latitude, longitude)), 
+                                   centers = N*i)$cluster) %>% 
+    group_by(dataset_id, kmeans_cluster) %>% 
+    sample_n(1) %>% 
+    mutate(proportion_of_village = i,
+           cluster_type = "k-means") %>% 
+    ungroup() %>% 
+    select(-kmeans_cluster)
+}) ->
+  kmeans_result
+
+set.seed(42)
+map_dfr(seq(0.05, 0.9, 0.01), function(i){
+  circassian_100 %>% 
+    group_by(dataset_id) %>% 
+    mutate(hclust_cluster = cutree(hclust(dist(tibble(latitude, longitude))), k = N*i)) %>% 
+    group_by(dataset_id, hclust_cluster) %>% 
+    sample_n(1) %>% 
+    mutate(proportion_of_village = i,
+           cluster_type = "hierarchical clustering") %>% 
+    ungroup() %>% 
+    select(-hclust_cluster)
+}) ->
+  hclust_result
+
+set.seed(42)
+map_dfr(seq(0.05, 0.9, 0.01), function(i){
+  circassian_100 %>% 
+    group_by(dataset_id) %>% 
+    sample_n(N*i) %>% 
+    mutate(proportion_of_village = i,
+           cluster_type = "random")
+}) ->
+  random_result
+
+random_result %>% 
+  bind_rows(hclust_result, kmeans_result) %>% 
+  distinct(proportion_of_village, cluster_type, uvular_qh) %>% 
+  count(proportion_of_village, cluster_type) %>% 
+  mutate(ratio = n/4) %>% 
+  write_csv("data/circassian_qh_samples.csv")
+
+read_csv("data/circassian_dialect_samples.csv") %>% 
+  mutate(cluster_type = factor(cluster_type, levels = c("random", "k-means", "hierarchical clustering"))) %>% 
+  ggplot(aes(proportion_of_village, ratio, color = cluster_type))+
+  geom_jitter(alpha = 0.02)+
+  geom_smooth(se = FALSE, method = "glm", method.args = list(family = "binomial"))+
+  labs(x = "village sample fraction", 
+       y = "discovery fraction",
+       color = "type of\nclusterization")
+ggsave("images/circassian_dialect_samples.png")
+
+read_csv("data/circassian_qh_samples.csv") %>% 
+  mutate(cluster_type = factor(cluster_type, levels = c("random", "k-means", "hierarchical clustering"))) %>% 
+  ggplot(aes(proportion_of_village, ratio, color = cluster_type))+
+  geom_jitter(alpha = 0.02)+
+  geom_smooth(se = FALSE, method = "glm", method.args = list(family = "binomial"))+
+  labs(x = "village sample fraction", 
+       y = "discovery fraction",
+       color = "type of\nclusterization")
+ggsave("images/circassian_qh_samples.png")
+```
+
+
+# Packages
+
+Here is the list of packages used:
+
+```{r, echo = FALSE}
+packages <- c("rmarkdown", "knitr", "tidyverse", "ggplot2", "partitions", "lingtypology")
+map_dfr(packages, function(i){
+  tibble(package = i,
+         version = str_c(packageVersion(i), sep = "."),
+         citation = str_c(unlist(citation(i))["author.family"], " (",
+                          unlist(citation(i))["year"], ")"))}) %>% 
+  arrange(package) %>% 
+  mutate(citation = ifelse(package == "rmarkdown", 
+                           "Xie, Dervieux, Riederer (2020)", citation)) %>% 
+  bind_rows(tibble(package = "R",
+                   version = str_c(sessionInfo()$R.version$major, ".",
+                                   sessionInfo()$R.version$minor),
+                   citation = str_c(unlist(citation())["author.given"], " (",
+                          unlist(citation())["year"], ")"))) %>% 
+  knitr::kable()
+```
+
+```{r, echo=FALSE}
+beepr::beep()
+```
+
+# Refferences
