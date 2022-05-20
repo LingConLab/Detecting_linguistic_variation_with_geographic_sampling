@@ -510,24 +510,16 @@ colnames(full_dataset) <-
 rm(cp_hc, cp_km, cp_r, eq_hc, eq_km, eq_r, ch_hc, ch_km, ch_r, un_hc, un_km, un_r)
 
 full_dataset %>%
+  mutate(n_categories = str_c("n categories: ", n_categories)) %>% 
   ggplot(aes(village_sample_fraction, discovery_fraction, color = type))+
  # geom_point()+
  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = FALSE)+
   #geom_jitter(alpha = 0.01, width = 0.5)+
   facet_grid(location~n_categories)+
-  labs(y = "discovery fraction")
+  labs(y = "discovered fraction",
+       color = "",
+       x = "settlement sample fraction")
 ggsave("images/discovery_fracton_by_village.png")
-```
-
-```{r, eval = FALSE, include=FALSE}
-full_dataset %>%
-  ggplot(aes(H, discovery_fraction*n_categories, color = factor(n_categories), linetype = type))+
-  #geom_point()+
-#  geom_smooth(se = FALSE, method = "glm", method.args = list(family = "binomial"))+
-  geom_smooth()+
-  facet_grid(location~n_categories, scales = "free_y")+
-  scale_linetype_manual("", values = c(1, 2, 4))
-ggsave("images/discovery_fracton_by_H.png")
 ```
 
 ```{r}
@@ -539,10 +531,10 @@ full_dataset %>%
   geom_smooth(se = FALSE, method = "glm", method.args = list(family = "binomial"))+
   #geom_smooth(se = FALSE)+
   facet_grid(location~type, scales = "free_y")+
-  labs(x = "normalized H", 
-       y = "discovery fraction",
+  labs(x = "normalized entropy", 
+       y = "discovered fraction",
        color = "number of\ncategories")
-ggsave("images/normalized_entrop.png")
+ggsave("images/normalized_entropy.png")
 ```
 
 
@@ -678,22 +670,20 @@ random_result %>%
   write_csv("data/circassian_qh_samples.csv")
 
 read_csv("data/circassian_dialect_samples.csv") %>% 
-  mutate(cluster_type = factor(cluster_type, levels = c("random", "k-means", "hierarchical clustering"))) %>% 
   ggplot(aes(proportion_of_village, ratio, color = cluster_type))+
   geom_jitter(alpha = 0.02)+
   geom_smooth(se = FALSE, method = "glm", method.args = list(family = "binomial"))+
-  labs(x = "village sample fraction", 
-       y = "discovery fraction",
+  labs(x = "settlement sample fraction", 
+       y = "discovered fraction",
        color = "type of\nclusterization")
 ggsave("images/circassian_dialect_samples.png")
 
 read_csv("data/circassian_qh_samples.csv") %>% 
-  mutate(cluster_type = factor(cluster_type, levels = c("random", "k-means", "hierarchical clustering"))) %>% 
   ggplot(aes(proportion_of_village, ratio, color = cluster_type))+
   geom_jitter(alpha = 0.02)+
   geom_smooth(se = FALSE, method = "glm", method.args = list(family = "binomial"))+
   labs(x = "village sample fraction", 
-       y = "discovery fraction",
+       y = "discovered fraction",
        color = "type of\nclusterization")
 ggsave("images/circassian_qh_samples.png")
 ```
