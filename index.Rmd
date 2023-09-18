@@ -209,26 +209,26 @@ set.seed(42)
 generate_equadistant(N = number_of_groups,
                      n = number_elements) %>% 
    mutate(type = "(a) circular equidistant",
-          type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) ->
+          type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) dialect chain", "(d) uniform"))) ->
    equidistant_example
 
 generate_equadistant(N = number_of_groups,
                      n = number_elements,
                      center = TRUE) %>% 
    mutate(type = "(b) center-periphery",
-          type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) ->
+          type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) dialect chain", "(d) uniform"))) ->
    center_periphery_example
 
 generate_uniform(N = number_of_groups,
                  n = number_elements) %>% 
    mutate(type = "(d) uniform",
-          type = factor(type, levels = c("(a) equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) ->
+          type = factor(type, levels = c("(a) equidistant", "(b) center-periphery", "(c) dialect chain", "(d) uniform"))) ->
    uniform_example
 
 generate_chain(N = number_of_groups,
                n = number_elements) %>% 
-   mutate(type = "(c) chain",
-          type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) ->
+   mutate(type = "(c) dialect chain",
+          type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) dialect chain", "(d) uniform"))) ->
    chain_example
 
 N <- number_of_groups
@@ -273,7 +273,7 @@ equidistant_example %>%
   bind_rows(center_periphery_example, 
             uniform_example,
             chain_example) %>% 
-  mutate(type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) chain", "(d) uniform"))) %>% 
+  mutate(type = factor(type, levels = c("(a) circular equidistant", "(b) center-periphery", "(c) dialect chain", "(d) uniform"))) %>% 
   ggplot(aes(x, y, color = id, shape = id))+
   geom_line(data = centroids, aes(x, y), color = "black", group = 1)+
   geom_point(data = centroids, aes(x, y), color = "black", shape = 10, size = 4)+
@@ -510,7 +510,15 @@ colnames(full_dataset) <-
 rm(cp_hc, cp_km, cp_r, eq_hc, eq_km, eq_r, ch_hc, ch_km, ch_r, un_hc, un_km, un_r)
 
 full_dataset %>%
-  mutate(n_categories = str_c("n categories: ", n_categories)) %>% 
+  mutate(location = case_when(location == "equidistant" ~ "circular equidistant",
+                              location == "center_periphery" ~ "center-periphery",
+                              location == "chain" ~ "dialect chain",
+                              TRUE ~ location),
+         location = factor(location, levels = c("circular equidistant", "center-periphery", "dialect chain", "uniform"))) ->
+  full_dataset
+
+full_dataset %>%
+  mutate(n_categories = str_c("n categories: ", n_categories)) %>%
   ggplot(aes(village_sample_fraction, discovery_fraction, color = type))+
  # geom_point()+
  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = FALSE)+
@@ -519,7 +527,7 @@ full_dataset %>%
   labs(y = "discovered fraction",
        color = "",
        x = "settlement sample fraction")
-ggsave("images/discovery_fracton_by_village.png")
+ggsave("images/discovery_fracton_by_village.png", bg = "white", width = 9, height = 7)
 ```
 
 ```{r}
@@ -534,7 +542,7 @@ full_dataset %>%
   labs(x = "normalized entropy", 
        y = "discovered fraction",
        color = "number of\ncategories")
-ggsave("images/normalized_entropy.png")
+ggsave("images/normalized_entropy.png", bg = "white", width = 9, height = 7)
 ```
 
 
@@ -685,7 +693,7 @@ read_csv("data/circassian_qh_samples.csv") %>%
   labs(x = "village sample fraction", 
        y = "discovered fraction",
        color = "type of\nclusterization")
-ggsave("images/circassian_qh_samples.png")
+ggsave("images/circassian_qh_samples.png", bg = "white", width = 9, height = 7)
 ```
 
 
